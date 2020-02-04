@@ -4,7 +4,7 @@ cache:
   paths:
   - node_modules/
 
-  stages:
+stages:
   - build
 
 build_node:
