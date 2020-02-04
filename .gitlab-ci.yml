@@ -1,0 +1,16 @@
+image: node:4.2.2
+
+cache:
+  paths:
+  - node_modules/
+
+stages:
+  - build
+
+build_node:
+  stage: build
+  script:
+   - npm install
+   - yarn start
+  tags:
+    - docker
