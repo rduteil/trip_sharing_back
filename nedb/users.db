@@ -1,3 +1,1 @@
-{"username":"Paul","password":"$2a$10$XytEiCvBEqJJQpwxQ0/1be24.1tVovwNMNiyWDgef0DNgycVhYjD.","salt":"$2a$10$XytEiCvBEqJJQpwxQ0/1be","failedAttempts":4,"allowedFrom":"2019-12-08T18:43:41+00:00","_id":"cn5uDAtto0Jw5mEC"}
-{"username":"John","password":"$2a$10$BMSWSgeSEvZTzYG6QwWA9eLTqAYfZd/WTevTfveDb3iXrGC8lo6Qi","salt":"$2a$10$BMSWSgeSEvZTzYG6QwWA9e","failedAttempts":4,"allowedFrom":"2019-12-06T14:58:55+00:00","_id":"n6rfqESDTzOhGHep"}
 {"$$indexCreated":{"fieldName":"username","unique":true,"sparse":false}}
