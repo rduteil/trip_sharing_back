@@ -1,1 +1,2 @@
-
+{"$$indexCreated":{"fieldName":"mail","unique":false,"sparse":false}}
+{"$$indexCreated":{"fieldName":"asker","unique":false,"sparse":false}}
