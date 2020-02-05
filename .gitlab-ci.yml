@@ -18,6 +18,7 @@ build_node:
 test_node:
   stage: test
   script:
-    ./script/test
+    - npm install
+    - ./script/test
   tags:
     - docker
