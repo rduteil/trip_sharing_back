@@ -11,6 +11,5 @@ build_node:
   stage: build
   script:
    - npm install
-   - yarn start
   tags:
     - docker
