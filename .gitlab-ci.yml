@@ -6,10 +6,18 @@ cache:
 
 stages:
   - build
+  - test
 
 build_node:
   stage: build
   script:
    - npm install
+  tags:
+    - docker
+
+test_node:
+  stage: test
+  script:
+    ./script/test
   tags:
     - docker
