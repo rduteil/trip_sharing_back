@@ -1,9 +1,9 @@
-const supertet = require("supertest");
+const supertest = require("supertest");
 const app = require("../src/index.js");
 
 describe("GET /", function() {
   it("Cannot GET /", function(done) {
-    supertet(app)
+    supertest(app)
       .get("/")
       .expect("Cannot GET /", done);
   });

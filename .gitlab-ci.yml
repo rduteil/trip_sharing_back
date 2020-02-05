@@ -19,7 +19,6 @@ test_node:
   stage: test
   script:
     - npm install
-    - chmod +x script/test
-    - ./script/test
+    - ./node_modules/.bin/mocha ./test/test.js
   tags:
     - docker
