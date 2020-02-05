@@ -19,6 +19,6 @@ test_node:
   stage: test
   script:
     - npm install
-    - ./node_modules/.bin/mocha ./test/test.js
+    - npm test
   tags:
     - docker
