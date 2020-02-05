@@ -5,6 +5,6 @@ describe("GET /", function() {
   it("Cannot GET /", function(done) {
     supertest(app)
       .get("/")
-      .expect("Cannot GET /", done);
+      .expect({ message: "Hello world" }, done);
   });
 });
