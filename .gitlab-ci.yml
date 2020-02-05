@@ -19,6 +19,7 @@ test_node:
   stage: test
   script:
     - npm install
+    - chmod +x script/test
     - ./script/test
   tags:
     - docker
