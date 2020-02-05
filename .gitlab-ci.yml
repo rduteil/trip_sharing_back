@@ -1,4 +1,4 @@
-image: node:4.2.2
+image: node:latest
 
 cache:
   paths:
@@ -6,11 +6,18 @@ cache:
 
 stages:
   - build
+  - test
 
 build_node:
   stage: build
   script:
    - npm install
-   - yarn start
+  tags:
+    - docker
+
+test_node:
+  stage: test
+  script:
+    ./script/test
   tags:
     - docker
