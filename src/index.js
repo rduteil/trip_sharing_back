@@ -12,6 +12,17 @@ const crypto = require("crypto");
 const graphqlHTTP = require("express-graphql");
 const { buildSchema } = require("graphql");
 
+//////// THIS PART FOR TESTS ONLY
+
+const userModel = require("./model/userModel");
+const userData = require("./data/userData");
+const UserService = require("./service/userService");
+
+let userService = new UserService(userModel, userData);
+userService.create("Jean", "password").then(code => console.log(code));
+
+/////////////////////////////////
+
 let usersDb = new nedb({
   filename: "./nedb/users.db",
   autoload: true
@@ -29,12 +40,6 @@ let connectionsDb = new nedb({
   autoload: true
 });
 connectionsDb.ensureIndex({ fieldName: "mail", unique: false });
-
-let friendShipsDb = new nedb({
-  filename: "./nedb/friendships.db",
-  autoload: true
-});
-connectionsDb.ensureIndex({ fieldName: "asker", unique: false });
 
 const transporter = mailer.createTransport({
   service: "Gmail",
