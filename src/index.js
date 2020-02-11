@@ -14,12 +14,8 @@ const { buildSchema } = require("graphql");
 
 //////// THIS PART FOR TESTS ONLY
 
-const userModel = require("./model/userModel");
-const userData = require("./data/userData");
-const UserService = require("./service/userService");
-
-let userService = new UserService(userModel, userData);
-userService.create("Jean", "password").then(code => console.log(code));
+const service = require("./serviceFactory");
+service.user.findAll().then(code => console.log(code));
 
 /////////////////////////////////
 
@@ -45,7 +41,7 @@ const transporter = mailer.createTransport({
   service: "Gmail",
   auth: {
     user: "trip.sharing.2k19@gmail.com",
-    pass: "NiqueLesUkrainiens"
+    pass: "TripSharing2k19"
   }
 });
 
@@ -280,139 +276,127 @@ app.post("/login", (req, res) => {
           res.json({ code: -2 });
         } else if (value) {
           // Check if the connection is in the whitelist
-          allowConnection(req.body.mail, req.body.fingerprint).then(
-            (trust, formerToken) => {
-              switch (trust) {
-                case -2: {
-                  let currentDate = new Date();
-                  let location = geoip.lookup(req.ip);
+          allowConnection(req.body.mail, req.body.fingerprint).then((trust, formerToken) => {
+            switch (trust) {
+              case -2: {
+                let currentDate = new Date();
+                let location = geoip.lookup(req.ip);
 
-                  // Warn the user that a forbidden connection has already been tried
-                  let mailOptions = {
-                    from: "trip.sharing.2k19@gmail.com",
-                    to: req.body.mail,
-                    subject:
-                      "[Trip Sharing 2k19] Connection attempt from an untrusted source",
-                    html:
-                      "<p> Hey, thank you for using our website !</p>" +
-                      "<p> A connection attempt has been detected from an untrusted source today at " +
-                      currentDate.getHours() +
-                      ":" +
-                      currentDate.getMinutes() +
-                      ":" +
-                      currentDate.getSeconds() +
-                      ", from a device localised <a href=https://maps.google.com/?q=" +
-                      location.ll[0] +
-                      "," +
-                      location.ll[1] +
-                      ">here</a></p>" +
-                      "<p> If you made this attempt, you can allow this connection by clicking <a href=https://jiz13.csb.app/validate/1/" +
-                      encodeURI(formerToken) +
-                      ">here</a></p>" +
-                      "<p> Otherwise, you might consider changing your password, it has probably been compromised </p>"
+                // Warn the user that a forbidden connection has already been tried
+                let mailOptions = {
+                  from: "trip.sharing.2k19@gmail.com",
+                  to: req.body.mail,
+                  subject: "[Trip Sharing 2k19] Connection attempt from an untrusted source",
+                  html:
+                    "<p> Hey, thank you for using our website !</p>" +
+                    "<p> A connection attempt has been detected from an untrusted source today at " +
+                    currentDate.getHours() +
+                    ":" +
+                    currentDate.getMinutes() +
+                    ":" +
+                    currentDate.getSeconds() +
+                    ", from a device localised <a href=https://maps.google.com/?q=" +
+                    location.ll[0] +
+                    "," +
+                    location.ll[1] +
+                    ">here</a></p>" +
+                    "<p> If you made this attempt, you can allow this connection by clicking <a href=https://jiz13.csb.app/validate/1/" +
+                    encodeURI(formerToken) +
+                    ">here</a></p>" +
+                    "<p> Otherwise, you might consider changing your password, it has probably been compromised </p>"
+                };
+
+                // Warn the user
+                transporter.sendMail(mailOptions, () => {
+                  res.json({ code: -13 });
+                });
+                break;
+              }
+              case -1: {
+                let tokenOptions = {
+                  issuer: "prod-paper-44c0v",
+                  algorithm: "RS256"
+                };
+                let newToken = jwt.sign(
+                  { mail: req.body.mail },
+                  fs.readFileSync("./keys/private.pem", "utf8"),
+                  tokenOptions
+                );
+
+                let location = geoip.lookup(req.ip);
+                connectionsDb.insert(
+                  {
+                    mail: req.body.mail,
+                    fingerprint: req.body.fingerprint,
+                    trust: false,
+                    token: newToken
+                  },
+                  () => {
+                    let currentDate = new Date();
+
+                    // Warn the user that a new connection has been attempted
+                    let mailOptions = {
+                      from: "trip.sharing.2k19@gmail.com",
+                      to: req.body.mail,
+                      subject: "[Trip Sharing 2k19] Connection attempt from an unkwnown source",
+                      html:
+                        "<p> Hey, thank you for using our website !</p>" +
+                        "<p> A connection attempt has been detected from an unknown source today at " +
+                        currentDate.getHours() +
+                        ":" +
+                        currentDate.getMinutes() +
+                        ":" +
+                        currentDate.getSeconds() +
+                        ', from a device localised <a href="https://maps.google.com/?q=' +
+                        location.ll[0] +
+                        "," +
+                        location.ll[1] +
+                        '">here</a></p>' +
+                        "<p> If you made this attempt, you can allow this connection by clicking <a href=https://jiz13.csb.app/validate/1/" +
+                        encodeURI(newToken) +
+                        ">here</a></p>"
+                    };
+
+                    transporter.sendMail(mailOptions, () => {
+                      // Warn the user
+                      res.json({ code: -12 });
+                    });
+                  }
+                );
+                break;
+              }
+              case 0: {
+                usersDb.update({ mail: req.body.mail }, { $set: { failedAttempts: 0 } }, {}, () => {
+                  let payload = {
+                    mail: req.body.mail,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    photo: user.photo
                   };
-
-                  // Warn the user
-                  transporter.sendMail(mailOptions, () => {
-                    res.json({ code: -13 });
-                  });
-                  break;
-                }
-                case -1: {
-                  let tokenOptions = {
+                  let privateKey = fs.readFileSync("./keys/private.pem", "utf8");
+                  let signOptions = {
                     issuer: "prod-paper-44c0v",
+                    subject: req.body.mail,
+                    audience: req.body.audience,
+                    expiresIn: "2h",
                     algorithm: "RS256"
                   };
-                  let newToken = jwt.sign(
-                    { mail: req.body.mail },
-                    fs.readFileSync("./keys/private.pem", "utf8"),
-                    tokenOptions
-                  );
-
-                  let location = geoip.lookup(req.ip);
-                  connectionsDb.insert(
-                    {
-                      mail: req.body.mail,
-                      fingerprint: req.body.fingerprint,
-                      trust: false,
-                      token: newToken
-                    },
-                    () => {
-                      let currentDate = new Date();
-
-                      // Warn the user that a new connection has been attempted
-                      let mailOptions = {
-                        from: "trip.sharing.2k19@gmail.com",
-                        to: req.body.mail,
-                        subject:
-                          "[Trip Sharing 2k19] Connection attempt from an unkwnown source",
-                        html:
-                          "<p> Hey, thank you for using our website !</p>" +
-                          "<p> A connection attempt has been detected from an unknown source today at " +
-                          currentDate.getHours() +
-                          ":" +
-                          currentDate.getMinutes() +
-                          ":" +
-                          currentDate.getSeconds() +
-                          ', from a device localised <a href="https://maps.google.com/?q=' +
-                          location.ll[0] +
-                          "," +
-                          location.ll[1] +
-                          '">here</a></p>' +
-                          "<p> If you made this attempt, you can allow this connection by clicking <a href=https://jiz13.csb.app/validate/1/" +
-                          encodeURI(newToken) +
-                          ">here</a></p>"
-                      };
-
-                      transporter.sendMail(mailOptions, () => {
-                        // Warn the user
-                        res.json({ code: -12 });
-                      });
-                    }
-                  );
-                  break;
-                }
-                case 0: {
-                  usersDb.update(
-                    { mail: req.body.mail },
-                    { $set: { failedAttempts: 0 } },
-                    {},
-                    () => {
-                      let payload = {
-                        mail: req.body.mail,
-                        firstName: user.firstName,
-                        lastName: user.lastName,
-                        photo: user.photo
-                      };
-                      let privateKey = fs.readFileSync(
-                        "./keys/private.pem",
-                        "utf8"
-                      );
-                      let signOptions = {
-                        issuer: "prod-paper-44c0v",
-                        subject: req.body.mail,
-                        audience: req.body.audience,
-                        expiresIn: "2h",
-                        algorithm: "RS256"
-                      };
-                      let token = jwt.sign(payload, privateKey, signOptions);
-                      res.json({
-                        code: 0,
-                        token: token
-                      });
-                    }
-                  );
-                  break;
-                }
-                default: {
+                  let token = jwt.sign(payload, privateKey, signOptions);
                   res.json({
-                    code: -2
+                    code: 0,
+                    token: token
                   });
-                  break;
-                }
+                });
+                break;
+              }
+              default: {
+                res.json({
+                  code: -2
+                });
+                break;
               }
             }
-          );
+          });
         } else {
           let failedAttempts = user.failedAttempts + 1;
           let allowedFrom = moment
@@ -443,35 +427,27 @@ app.post("/verify", (req, res) => {
   // Check the token
   if (checkToken(req.body.token, undefined, jwtActions.VERIFY_ACCOUNT)) {
     // Get the user
-    verificationsDb.findOne(
-      { token: req.body.token },
-      (error, verification) => {
-        if (error !== null) {
-          res.json({ code: -2 });
-          return;
-        } else if (verification === null || verification.type !== 0) {
-          res.json({ code: -8 });
-          return;
-        } else {
-          verificationsDb.remove({ token: req.body.token }, {}, () => {
-            usersDb.update(
-              { mail: verification.mail },
-              { $set: { verified: true } },
-              {},
-              error => {
-                if (error !== null) {
-                  res.json({ code: -2 });
-                  return;
-                } else {
-                  res.json({ code: 0 });
-                  return;
-                }
-              }
-            );
+    verificationsDb.findOne({ token: req.body.token }, (error, verification) => {
+      if (error !== null) {
+        res.json({ code: -2 });
+        return;
+      } else if (verification === null || verification.type !== 0) {
+        res.json({ code: -8 });
+        return;
+      } else {
+        verificationsDb.remove({ token: req.body.token }, {}, () => {
+          usersDb.update({ mail: verification.mail }, { $set: { verified: true } }, {}, error => {
+            if (error !== null) {
+              res.json({ code: -2 });
+              return;
+            } else {
+              res.json({ code: 0 });
+              return;
+            }
           });
-        }
+        });
       }
-    );
+    });
   } else {
     // Token is invalid
     res.json({ code: -8 });
@@ -496,19 +472,15 @@ app.post("/allow", (req, res) => {
           res.json({ code: -9 });
           return;
         } else {
-          connectionsDb.update(
-            { token: req.body.token },
-            { $set: { trust: true } },
-            error => {
-              if (error !== null) {
-                res.json({ code: -2 });
-                return;
-              } else {
-                res.json({ code: 0 });
-                return;
-              }
+          connectionsDb.update({ token: req.body.token }, { $set: { trust: true } }, error => {
+            if (error !== null) {
+              res.json({ code: -2 });
+              return;
+            } else {
+              res.json({ code: 0 });
+              return;
             }
-          );
+          });
         }
       }
     );
@@ -604,9 +576,7 @@ app.post("/reset/get", (req, res) => {
       );
 
       let cipher = crypto.createCipher("aes256", "key");
-      let encoded =
-        cipher.update(req.body.mail + "/" + token, "utf8", "hex") +
-        cipher.final("hex");
+      let encoded = cipher.update(req.body.mail + "/" + token, "utf8", "hex") + cipher.final("hex");
 
       let mailOptions = {
         from: "trip.sharing.2k19@gmail.com",
@@ -628,8 +598,7 @@ app.post("/reset/get", (req, res) => {
 
 app.post("/reset/set", (req, res) => {
   let decipher = crypto.createDecipher("aes256", "key");
-  let decoded =
-    decipher.update(req.body.cipher, "hex", "utf8") + decipher.final("utf8");
+  let decoded = decipher.update(req.body.cipher, "hex", "utf8") + decipher.final("utf8");
 
   let [mail, token] = decoded.split("/");
   usersDb.findOne({ mail: mail }, (error, user) => {
@@ -701,10 +670,7 @@ const root = {
 };
 
 // Set graphQL endpoint
-app.use(
-  "/graphql",
-  graphqlHTTP({ schema: schema, rootValue: root, graphiql: true })
-);
+app.use("/graphql", graphqlHTTP({ schema: schema, rootValue: root, graphiql: true }));
 
 // Start server
 app.listen(3000);
