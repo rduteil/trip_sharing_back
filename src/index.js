@@ -147,7 +147,7 @@ const app = express();
 // Enable requests comming from the front-end server
 app.use(
   cors({
-    origin: ["https://jiz13.csb.app"],
+    origin: ["https://vg06i.csb.app"],
     methods: ["GET", "POST"],
     optionsSuccessStatus: 200
   })
@@ -390,9 +390,7 @@ app.post("/login", (req, res) => {
                 break;
               }
               default: {
-                res.json({
-                  code: -2
-                });
+                res.json({ code: -2 });
                 break;
               }
             }

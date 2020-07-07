@@ -1,15 +1,17 @@
 const nedb = require("nedb");
 
-let connectionsDb = new nedb({
-  filename: "../../nedb/connections.db",
-  autoload: true
-});
-connectionsDb.ensureIndex({ fieldName: "userId", unique: false });
-
 class ConnectionData {
+  constructor() {
+    this.db = new nedb({
+      filename: "../../nedb/connections.db",
+      autoload: true
+    });
+    this.db.ensureIndex({ fieldName: "userId", unique: false });
+  }
+
   create(connection) {
     return new Promise(resolve => {
-      connectionsDb.insert({ ...connection }, error => {
+      this.db.insert({ ...connection }, error => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -21,7 +23,7 @@ class ConnectionData {
 
   update(connection) {
     return new Promise(resolve => {
-      connectionsDb.update({ _id: connection._id }, connection, error => {
+      this.db.update({ _id: connection._id }, connection, error => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -33,7 +35,7 @@ class ConnectionData {
 
   findOne(fields) {
     return new Promise(resolve => {
-      connectionsDb.find(fields, {}, (error, connection) => {
+      this.db.find(fields, {}, (error, connection) => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -45,7 +47,7 @@ class ConnectionData {
 
   removeOne(fields) {
     return new Promise(resolve => {
-      connectionsDb.remove(fields, {}, error => {
+      this.db.remove(fields, {}, error => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -57,7 +59,7 @@ class ConnectionData {
 
   removeAll(fields) {
     return new Promise(resolve => {
-      connectionsDb.remove(fields, { multi: true }, error => {
+      this.db.remove(fields, { multi: true }, error => {
         if (error !== null) {
           resolve(-2);
         } else {

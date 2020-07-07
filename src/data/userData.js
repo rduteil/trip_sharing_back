@@ -1,15 +1,16 @@
 const nedb = require("nedb");
 
-let usersDb = new nedb({
-  filename: "../../nedb/users.db",
-  autoload: true
-});
-usersDb.ensureIndex({ fieldName: "mail", unique: true });
-
 class UserData {
+  constructor() {
+    this.db = new nedb({
+      filename: "../../nedb/users.db",
+      autoload: true
+    });
+    this.db.ensureIndex({ fieldName: "mail", unique: true });
+  }
   create(user) {
     return new Promise(resolve => {
-      usersDb.insert({ ...user }, error => {
+      this.db.insert({ ...user }, error => {
         if (error !== null) {
           resolve(-1);
         } else {
@@ -21,7 +22,7 @@ class UserData {
 
   update(user) {
     return new Promise(resolve => {
-      usersDb.update({ _id: user._id }, user, error => {
+      this.db.update({ _id: user._id }, user, error => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -33,7 +34,7 @@ class UserData {
 
   findOne(field) {
     return new Promise(resolve => {
-      usersDb.findOne(field, (error, user) => {
+      this.db.findOne(field, (error, user) => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -45,7 +46,7 @@ class UserData {
 
   findAll() {
     return new Promise(resolve => {
-      usersDb.find({}, (error, users) => {
+      this.db.find({}, (error, users) => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -57,7 +58,7 @@ class UserData {
 
   removeOne(field) {
     return new Promise(resolve => {
-      usersDb.remove(field, {}, error => {
+      this.db.remove(field, {}, error => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -69,7 +70,7 @@ class UserData {
 
   removeAll() {
     return new Promise(resolve => {
-      usersDb.remove({}, { multi: true }, error => {
+      this.db.remove({}, { multi: true }, error => {
         if (error !== null) {
           resolve(-2);
         } else {

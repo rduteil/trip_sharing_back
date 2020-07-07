@@ -1,15 +1,16 @@
 const nedb = require("nedb");
 
-let verificationsDb = new nedb({
-  filename: "../../nedb/verifications.db",
-  autoload: true
-});
-verificationsDb.ensureIndex({ fieldName: "userId", unique: true });
-
 class VerificationData {
+  constructro() {
+    this.db = new nedb({
+      filename: "../../nedb/verifications.db",
+      autoload: true
+    });
+    this.db.ensureIndex({ fieldName: "userId", unique: true });
+  }
   create(verification) {
     return new Promise(resolve => {
-      verificationsDb.insert(verification, error => {
+      this.db.insert(verification, error => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -21,7 +22,7 @@ class VerificationData {
 
   findOne(fields) {
     return new Promise(resolve => {
-      verificationsDb.find(fields, {}, (error, verification) => {
+      this.db.find(fields, {}, (error, verification) => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -33,7 +34,7 @@ class VerificationData {
 
   removeOne(fields) {
     return new Promise(resolve => {
-      verificationsDb.remove(fields, {}, error => {
+      this.db.remove(fields, {}, error => {
         if (error !== null) {
           resolve(-2);
         } else {
