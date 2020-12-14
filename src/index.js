@@ -3,88 +3,34 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const bcrypt = require("bcryptjs");
-const nedb = require("nedb");
 const fs = require("fs");
 const jwt = require("jsonwebtoken");
-const mailer = require("nodemailer");
 const geoip = require("geoip-lite");
 const crypto = require("crypto");
 const graphqlHTTP = require("express-graphql");
 const { buildSchema } = require("graphql");
+const swaggerUi = require("swagger-ui-express");
+const yaml = require("yamljs");
 
 //////// THIS PART FOR TESTS ONLY
+const serviceFactory = require("./serviceFactory");
+const enums = require("./helpers/enums");
 
-const service = require("./serviceFactory");
-service.user.findAll().then(code => console.log(code));
-
+let service = serviceFactory(
+  enums.DATABASE_SERVICE.NEDB,
+  enums.MAIL_SERVICE.GMAIL,
+  enums.PASSWORD_SERVICE.BCRYPT,
+  enums.TOKEN_SERVICE.JWT
+);
 /////////////////////////////////
-
-let usersDb = new nedb({
-  filename: "./nedb/users.db",
-  autoload: true
-});
-usersDb.ensureIndex({ fieldName: "mail", unique: true });
-
-let verificationsDb = new nedb({
-  filename: "./nedb/verifications.db",
-  autoload: true
-});
-verificationsDb.ensureIndex({ fieldName: "mail", unique: true });
-
-let connectionsDb = new nedb({
-  filename: "./nedb/connections.db",
-  autoload: true
-});
-connectionsDb.ensureIndex({ fieldName: "mail", unique: false });
-
-const transporter = mailer.createTransport({
-  service: "Gmail",
-  auth: {
-    user: "trip.sharing.2k19@gmail.com",
-    pass: "TripSharing2k19"
-  }
-});
-
-// Return a promise indicating if the current device's fingerprint matches a known one
-const allowConnection = (mail, fingerprint) => {
-  return new Promise(resolve => {
-    connectionsDb.findOne(
-      {
-        mail: mail,
-        fingerprint: fingerprint
-      },
-      (error, connection) => {
-        if (error !== null) {
-          resolve(0);
-        } else if (connection === null) {
-          resolve(-1);
-        } else {
-          if (connection.trust) {
-            resolve(0);
-          } else {
-            resolve(-2, connection.token);
-          }
-        }
-      }
-    );
-  });
-};
-
-// Enum containing actions validated by a json web token
-const jwtActions = {
-  LOGIN: "LOGIN",
-  VERIFY_ACCOUNT: "VERIFY_ACCOUNT",
-  ALLOW_CONNECTION: "ALLOW_CONNECTION",
-  RESET_PASSWORD: "RESET_PASSWORD"
-};
 
 // Return a promise indicating if the given token is valid
 const checkToken = (token, payload, action) => {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     let options = {};
 
     switch (action) {
-      case jwtActions.LOGIN: {
+      case enums.JWT_ACTIONS.LOGIN: {
         options = {
           issuer: "prod-paper-44c0v",
           subject: payload.mail,
@@ -94,7 +40,7 @@ const checkToken = (token, payload, action) => {
         };
         break;
       }
-      case jwtActions.VERIFY_ACCOUNT: {
+      case enums.JWT_ACTIONS.VERIFY_ACCOUNT: {
         options = {
           issuer: "prod-paper-44c0v",
           expiresIn: "12h",
@@ -102,14 +48,14 @@ const checkToken = (token, payload, action) => {
         };
         break;
       }
-      case jwtActions.ALLOW_CONNECTION: {
+      case enums.JWT_ACTIONS.ALLOW_CONNECTION: {
         options = {
           issuer: "prod-paper-44c0v",
           algorithm: ["RS256"]
         };
         break;
       }
-      case jwtActions.RESET_PASSWORD: {
+      case enums.JWT_ACTIONS.RESET_PASSWORD: {
         options = {
           issuer: "prod-paper-44c0v",
           subject: payload.mail,
@@ -123,144 +69,155 @@ const checkToken = (token, payload, action) => {
         resolve(false);
       }
     }
-    // Check if the token is valid
-    try {
-      let publicKey = fs.readFileSync("./keys/public.pem", "utf8");
-      let decode = jwt.verify(token, publicKey, options);
-      usersDb.findOne({ mail: payload.mail }, (error, user) => {
-        if (error !== null || user === null) {
-          resolve(false);
-        } else if (decode.iat > moment(user.allowedFrom).valueOf() / 1000) {
-          resolve(true);
-        } else {
-          resolve(false);
-        }
-      });
-    } catch (error) {
-      resolve(false);
-    }
+    // Get the public key
+    let publicKey = fs.readFileSync("./keys/public.pem", "utf8");
+
+    // Verify the token
+    service.token.verify(token, publicKey, options).then((verifyResult) => {
+      if (verifyResult.code === 0) {
+        service.user.findOne({ mail: payload.mail }).then((userResult) => {
+          // If no user has been found, reject
+          if (userResult.code !== 0 || userResult.value === null) {
+            resolve(false);
+          }
+          // If a user allowed before this token was issued is found, resolve
+          else if (verifyResult.value.iat > moment(userResult.value.allowedFrom).valueOf() / 1000) {
+            resolve(true);
+          }
+          // Else, reject
+          else {
+            resolve(false);
+          }
+        });
+      } else {
+        resolve(false);
+      }
+    });
   });
 };
 
+// Hosting address of the front-end application
+const frontEnd = ["https://9jelk.csb.app", "https://vg06i.csb.app"];
+
+// Instanciate the application
 const app = express();
 
-// Enable requests comming from the front-end server
-app.use(
-  cors({
-    origin: ["https://vg06i.csb.app"],
-    methods: ["GET", "POST"],
-    optionsSuccessStatus: 200
-  })
-);
-
 app.set("trust proxy", true);
+
+// Serve the swagger
+app.use("/swagger", swaggerUi.serve, swaggerUi.setup(yaml.load("./documentation/swagger.yaml")));
+
+// Enable requests comming from the front-end server
+app.use(cors({ origin: frontEnd, methods: ["GET", "POST"], optionsSuccessStatus: 200 }));
 
 app.use(bodyParser.json());
 
 app.use(bodyParser.urlencoded({ extended: true }));
 
 app.get("/", (req, res) => {
-  res.json({ message: "Hello world" });
+  res.status(enums.HTTP_STATUS.OK).json({ message: "Hello world" });
 });
 
 app.post("/register", (req, res) => {
-  // Generate Bcrypt salt
-  bcrypt.genSalt(10, (error, salt) => {
-    if (error === null) {
-      // Generate Bcrypt hash
-      bcrypt.hash(req.body.password, salt, (error, hash) => {
-        if (error === null) {
-          // Generate JWT for validation
+  // Generate password salt
+  service.password.salt(10).then((saltResult) => {
+    if (saltResult.code === 0) {
+      // Generate password hash
+      service.password.hash(req.body.password, saltResult.value).then((hashResult) => {
+        if (hashResult.code === 0) {
+          // Generate token
           let tokenOptions = {
             issuer: "prod-paper-44c0v",
             expiresIn: "12h",
             algorithm: "RS256"
           };
-          let token = jwt.sign(
-            { mail: req.body.mail },
-            fs.readFileSync("./keys/private.pem", "utf8"),
-            tokenOptions
-          );
+          service.token
+            .sign({ mail: req.body.mail }, fs.readFileSync("./keys/private.pem", "utf8"), tokenOptions)
+            .then((tokenResult) => {
+              if (tokenResult.code === 0) {
+                let user = {
+                  mail: req.body.mail,
+                  firstName: "",
+                  lastName: "",
+                  photo: "",
+                  failedAttempts: 0,
+                  allowedFrom: moment.utc().format(),
+                  verified: false,
+                  password: hashResult.value
+                };
+                service.user.create(user).then((userResult) => {
+                  if (userResult.code === 0) {
+                    let verification = {
+                      mail: req.body.mail,
+                      token: tokenResult.value,
+                      type: 0
+                    };
+                    // Add validation token to database
+                    service.verification.create(verification).then((verificationResult) => {
+                      if (verificationResult.code === 0) {
+                        // Send verification mail to user
+                        let mailOptions = {
+                          from: "trip.sharing.2k19@gmail.com",
+                          to: req.body.mail,
+                          subject: "[Trip Sharing 2k19] E-mail verification",
+                          html:
+                            "<p> Hey, thank you for registering on our website !</p>" +
+                            "<p> If you want to use your account now, please follow this <a href=" +
+                            frontEnd +
+                            "/validate/0/" +
+                            encodeURI(tokenResult.value) +
+                            ">link</a></p>"
+                        };
 
-          // Add user to database
-          usersDb.insert(
-            {
-              mail: req.body.mail,
-              firstName: "",
-              lastName: "",
-              photo: "",
-              failedAttempts: 0,
-              allowedFrom: moment.utc().format(),
-              verified: false,
-              password: hash
-            },
-            error => {
-              if (error === null) {
-                // Add validation token to database
-                verificationsDb.insert(
-                  {
-                    mail: req.body.mail,
-                    token: token,
-                    type: 0
-                  },
-                  error => {
-                    if (error === null) {
-                      // Send verification mail to user
-                      let mailOptions = {
-                        from: "trip.sharing.2k19@gmail.com",
-                        to: req.body.mail,
-                        subject: "[Trip Sharing 2k19] E-mail verification",
-                        html:
-                          "<p> Hey, thank you for registering on our website !</p>" +
-                          "<p> If you want to use your account now, please follow this <a href=https://jiz13.csb.app/validate/0/" +
-                          encodeURI(token) +
-                          ">link</a></p>"
-                      };
-
-                      transporter.sendMail(mailOptions, error => {
-                        if (error === null) {
-                          // Add current user device to whitelist
-                          connectionsDb.insert(
-                            {
-                              mail: req.body.mail,
-                              fingerprint: req.body.fingerprint,
-                              trust: true,
-                              token: ""
-                            },
-                            () => {
-                              // Everything is ok, warn the user
-                              res.json({ code: 0 });
-                            }
-                          );
-                        } else {
-                          res.json({ code: -7 });
-                        }
-                      });
-                    } else {
-                      // Remove newly created user
-                      usersDb.remove({ mail: req.body.mail }, {}, () => {
-                        res.json({ code: -1 });
-                      });
-                    }
+                        service.mail.send(mailOptions).then((mailResult) => {
+                          if (mailResult.code === 0) {
+                            // Add current user device to whitelist
+                            service.connection.create(
+                              {
+                                mail: req.body.mail,
+                                fingerprint: req.body.fingerprint,
+                                trust: true,
+                                token: ""
+                              },
+                              () => {
+                                // Everything is ok, warn the user
+                                res.status(enums.HTTP_STATUS.CREATED).json({ code: mailResult.code });
+                              }
+                            );
+                          } else {
+                            // Remove newly created user
+                            service.user.removeOne({ mail: req.body.mail }).then(() => {
+                              res.json({ code: mailResult.code });
+                            });
+                          }
+                        });
+                      } else {
+                        // Remove newly created user
+                        service.user.removeOne({ mail: req.body.mail }).then(() => {
+                          res.json({ code: verificationResult.code });
+                        });
+                      }
+                    });
+                  } else {
+                    res.json({ code: userResult.code });
                   }
-                );
+                });
               } else {
-                res.json({ error: error, code: -1 });
+                res.json({ code: tokenResult.code });
               }
-            }
-          );
+            });
         } else {
-          res.json({ code: -2 });
+          res.json({ code: hashResult.code });
         }
       });
     } else {
-      res.json({ code: -2 });
+      res.json({ code: saltResult.code });
     }
   });
 });
 
 app.post("/login", (req, res) => {
-  usersDb.findOne({ mail: req.body.mail }, (error, user) => {
+  service.user.findOne({ mail: req.body.mail }, (error, user) => {
     if (error !== null) {
       res.json({ code: -2 });
     } else if (user === null) {
@@ -276,7 +233,7 @@ app.post("/login", (req, res) => {
           res.json({ code: -2 });
         } else if (value) {
           // Check if the connection is in the whitelist
-          allowConnection(req.body.mail, req.body.fingerprint).then((trust, formerToken) => {
+          service.connection.check(req.body.mail, req.body.fingerprint).then((trust, formerToken) => {
             switch (trust) {
               case -2: {
                 let currentDate = new Date();
@@ -300,14 +257,16 @@ app.post("/login", (req, res) => {
                     "," +
                     location.ll[1] +
                     ">here</a></p>" +
-                    "<p> If you made this attempt, you can allow this connection by clicking <a href=https://jiz13.csb.app/validate/1/" +
+                    "<p> If you made this attempt, you can allow this connection by clicking <a href=" +
+                    frontEnd +
+                    "/validate/1/" +
                     encodeURI(formerToken) +
                     ">here</a></p>" +
                     "<p> Otherwise, you might consider changing your password, it has probably been compromised </p>"
                 };
 
                 // Warn the user
-                transporter.sendMail(mailOptions, () => {
+                service.mail.send(mailOptions, () => {
                   res.json({ code: -13 });
                 });
                 break;
@@ -317,14 +276,10 @@ app.post("/login", (req, res) => {
                   issuer: "prod-paper-44c0v",
                   algorithm: "RS256"
                 };
-                let newToken = jwt.sign(
-                  { mail: req.body.mail },
-                  fs.readFileSync("./keys/private.pem", "utf8"),
-                  tokenOptions
-                );
+                let newToken = jwt.sign({ mail: req.body.mail }, fs.readFileSync("./keys/private.pem", "utf8"), tokenOptions);
 
                 let location = geoip.lookup(req.ip);
-                connectionsDb.insert(
+                service.connection.create(
                   {
                     mail: req.body.mail,
                     fingerprint: req.body.fingerprint,
@@ -352,12 +307,14 @@ app.post("/login", (req, res) => {
                         "," +
                         location.ll[1] +
                         '">here</a></p>' +
-                        "<p> If you made this attempt, you can allow this connection by clicking <a href=https://jiz13.csb.app/validate/1/" +
+                        "<p> If you made this attempt, you can allow this connection by clicking <a href=" +
+                        frontEnd +
+                        "/validate/1/" +
                         encodeURI(newToken) +
                         ">here</a></p>"
                     };
 
-                    transporter.sendMail(mailOptions, () => {
+                    service.mail.send(mailOptions, () => {
                       // Warn the user
                       res.json({ code: -12 });
                     });
@@ -366,7 +323,7 @@ app.post("/login", (req, res) => {
                 break;
               }
               case 0: {
-                usersDb.update({ mail: req.body.mail }, { $set: { failedAttempts: 0 } }, {}, () => {
+                service.user.update({ mail: req.body.mail }, { $set: { failedAttempts: 0 } }, {}, () => {
                   let payload = {
                     mail: req.body.mail,
                     firstName: user.firstName,
@@ -401,7 +358,7 @@ app.post("/login", (req, res) => {
             .utc()
             .add(Math.max(0, failedAttempts - 3) * 10, "minutes")
             .format();
-          usersDb.update(
+          service.user.update(
             {
               mail: req.body.mail
             },
@@ -423,9 +380,9 @@ app.post("/login", (req, res) => {
 
 app.post("/verify", (req, res) => {
   // Check the token
-  if (checkToken(req.body.token, undefined, jwtActions.VERIFY_ACCOUNT)) {
+  if (checkToken(req.body.token, undefined, enums.JWT_ACTIONS.VERIFY_ACCOUNT)) {
     // Get the user
-    verificationsDb.findOne({ token: req.body.token }, (error, verification) => {
+    service.verification.findOne({ token: req.body.token }, (error, verification) => {
       if (error !== null) {
         res.json({ code: -2 });
         return;
@@ -433,8 +390,8 @@ app.post("/verify", (req, res) => {
         res.json({ code: -8 });
         return;
       } else {
-        verificationsDb.remove({ token: req.body.token }, {}, () => {
-          usersDb.update({ mail: verification.mail }, { $set: { verified: true } }, {}, error => {
+        service.verification.remove({ token: req.body.token }, {}, () => {
+          service.user.update({ mail: verification.mail }, { $set: { verified: true } }, {}, (error) => {
             if (error !== null) {
               res.json({ code: -2 });
               return;
@@ -454,8 +411,8 @@ app.post("/verify", (req, res) => {
 });
 
 app.post("/allow", (req, res) => {
-  if (checkToken(req.body.token, undefined, jwtActions.ALLOW_CONNECTION)) {
-    connectionsDb.findOne(
+  if (checkToken(req.body.token, undefined, enums.JWT_ACTIONS.ALLOW_CONNECTION)) {
+    service.connection.findOne(
       {
         token: req.body.token
       },
@@ -470,7 +427,7 @@ app.post("/allow", (req, res) => {
           res.json({ code: -9 });
           return;
         } else {
-          connectionsDb.update({ token: req.body.token }, { $set: { trust: true } }, error => {
+          service.connection.update({ token: req.body.token }, { $set: { trust: true } }, (error) => {
             if (error !== null) {
               res.json({ code: -2 });
               return;
@@ -490,13 +447,9 @@ app.post("/allow", (req, res) => {
 
 app.post("/update/user", (req, res) => {
   let payload = jwt.decode(req.body.token);
-  checkToken(
-    req.body.token,
-    { mail: payload.mail, audience: req.body.audience },
-    jwtActions.LOGIN
-  ).then(isOk => {
+  checkToken(req.body.token, { mail: payload.mail, audience: req.body.audience }, enums.JWT_ACTIONS.LOGIN).then((isOk) => {
     if (isOk) {
-      usersDb.findOne({ mail: payload.mail }, (error, user) => {
+      service.user.findOne({ mail: payload.mail }, (error, user) => {
         if (error != null) {
           res.json({ code: -2 });
           return;
@@ -504,7 +457,7 @@ app.post("/update/user", (req, res) => {
           res.json({ code: -3 });
           return;
         } else {
-          usersDb.update(
+          service.user.update(
             { mail: payload.mail },
             {
               $set: {
@@ -514,7 +467,7 @@ app.post("/update/user", (req, res) => {
                 photo: req.body.photo
               }
             },
-            error => {
+            (error) => {
               if (error !== null) {
                 res.json({ code: -1 });
               } else {
@@ -553,7 +506,7 @@ app.post("/update/user", (req, res) => {
 app.post("/update/password", (req, res) => {});
 
 app.post("/reset/get", (req, res) => {
-  usersDb.findOne({ mail: req.body.mail }, (error, user) => {
+  service.user.findOne({ mail: req.body.mail }, (error, user) => {
     if (error !== null) {
       res.json({ code: -2 });
       return;
@@ -567,11 +520,7 @@ app.post("/reset/get", (req, res) => {
         expiresIn: "2h",
         algorithm: "RS256"
       };
-      let token = jwt.sign(
-        { mail: req.body.mail },
-        fs.readFileSync("./keys/private.pem", "utf8"),
-        signOptions
-      );
+      let token = jwt.sign({ mail: req.body.mail }, fs.readFileSync("./keys/private.pem", "utf8"), signOptions);
 
       let cipher = crypto.createCipher("aes256", "key");
       let encoded = cipher.update(req.body.mail + "/" + token, "utf8", "hex") + cipher.final("hex");
@@ -582,11 +531,13 @@ app.post("/reset/get", (req, res) => {
         subject: "[Trip Sharing 2k19] Reset password",
         html:
           "<p> Hey, thank you for using our website !</p>" +
-          "<p> To reset your password, please follow this <a href=https://jiz13.csb.app/reset/" +
+          "<p> To reset your password, please follow this <a href=" +
+          frontEnd +
+          "/reset/" +
           encodeURI(encoded) +
           ">link</a></p>"
       };
-      transporter.sendMail(mailOptions, () => {
+      service.mail.send(mailOptions, () => {
         // Warn the user
         res.json({ code: 0 });
       });
@@ -599,7 +550,7 @@ app.post("/reset/set", (req, res) => {
   let decoded = decipher.update(req.body.cipher, "hex", "utf8") + decipher.final("utf8");
 
   let [mail, token] = decoded.split("/");
-  usersDb.findOne({ mail: mail }, (error, user) => {
+  service.user.findOne({ mail: mail }, (error, user) => {
     if (error !== null) {
       res.json({ code: -2 });
       return;
@@ -607,11 +558,7 @@ app.post("/reset/set", (req, res) => {
       res.json({ code: -3 });
       return;
     } else {
-      checkToken(
-        token,
-        { mail: mail, audience: req.body.audience },
-        jwtActions.RESET_PASSWORD
-      ).then(isOk => {
+      checkToken(token, { mail: mail, audience: req.body.audience }, enums.JWT_ACTIONS.RESET_PASSWORD).then((isOk) => {
         if (isOk) {
           bcrypt.genSalt(10, (error, salt) => {
             if (error !== null) {
@@ -623,7 +570,7 @@ app.post("/reset/set", (req, res) => {
                 res.json({ code: -2 });
                 return;
               }
-              usersDb.update(
+              service.user.update(
                 { mail: mail },
                 {
                   $set: {
@@ -632,7 +579,7 @@ app.post("/reset/set", (req, res) => {
                     password: hash
                   }
                 },
-                error => {
+                (error) => {
                   if (error !== null) {
                     res.json({ code: -2 });
                     return;

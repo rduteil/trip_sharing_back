@@ -1,0 +1,665 @@
+openapi: 3.0.0
+info:
+  version: "1.3.47.321"
+  title: "Trip Sharig 2k19 API"
+  description: "Description of the back-end endpoints"
+servers:
+  - url: https://l8zby.sse.codesandbox.io   
+paths:
+  /:
+    parameters:
+    get:
+      tags:
+        - Test
+      description: "Test address used to check if the server is running. Returns Hello World when up."
+      responses:
+        "200":
+          description: "Server is running and ready to consume requests."
+          content:
+            application/json:
+              schema: 
+                $ref: '#/components/schemas/helloWorld'
+  /register:
+    parameters:
+    post:
+      tags:
+        - Register
+      description: "Register address used to create a new account. Returns a code indicating what happened."
+      responses:
+        "201":
+          description: "Account successfully created. A mail has been sent to the given address for verification."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/code0'
+
+
+
+
+  /normalizedLeads/v1/leads:
+    parameters:
+      - $ref: '#/components/parameters/From'
+      - $ref: '#/components/parameters/Authorization'
+      
+    post:
+      tags:
+        - Leads
+      description: |
+        **Requête pour l'envoi des leads.**
+        * Le header From doit correspondre au header From utilisé lors de la récupération du token d'authentification.
+        * Les leads doivent être mis sous la forme d'un tabeau d'objets JSON (Les propriétés sont visibles dans l'onglet Schemas).
+        * Ce tableau doit ensuite être chiffré via l'algorithme de Rijndael avec les propriétés suivantes :
+          * *Taille des blocs* - **128 bits** (Rijndael 128, également appelé AES)
+          * *Mode de chiffrage des blocs* - **CBC** (Besoin d'un vecteur d'initialisation)
+          * *Taille de la clé* - **256 bits**
+          * *Taile du vecteur d'initialisation* - **128 bits** (Taille d'un bloc)
+          * *Padding* - **PKCS7**
+        * Concernant la valeur de la clé, la théorie voudrait qu'elle soit issue d'une phrase secrète hashée via un algorithme type **PBKDF2**, **BCRYPT** ou **SCRYPT** mais avec le chiffrage supplémentaire via RSA, elle est ici générée comme une suite aléatoire de 256 bits (Le choix du hashage d'une phrase secrète n'a pas été retenu puisque le RSA nous permet de transmettre à la place une clé publique, réduisant considérablement les risques en cas d'interception).
+        * Le vecteur d'initialisation est lui, par nature, généré aléatoirement de la même manière. Il est important d'un point de vue sécuritaire de ne pas réutiliser la même valeur.
+        * Une fois la clé et le vecteur d'initialisation générés, il faut chiffrer le tableau de leads (Transformation en stream -> encodage généralement)
+        * L'étape suivante est de chiffrer via **RSA** la clé et le vecteur d'intitialisation pour les envoyer avec le tableau et permettre le déchiffrement.
+          * *Taille du module (fourni)* - **512 bits**
+          * *Taille de l'exposant (fourni)* - **24 octets**
+          * *Padding* - **PKCS1**
+        * Les paramètres RSA sont transmis par EDF ENR aux partenaires.
+        * Une fois les deux valeurs chiffrées (Tableu d'octet -> encodage généralement), il faut encoder les trois valeurs (leads, clé et vecteur d'initialisation) au format **Base64**.
+        * Finalement, il faut transmettre ces trois valeurs dans le corps de la requête.
+        
+        **Exemple pour l'implémentation en C#**
+        
+        * ***Rijndael** via System.Security.Cryptography*
+        ```csharp
+        RijndaelManaged provider = new RijndaelManaged();
+        provider.GenerateKey();
+        provider.GenerateIV();
+        ICryptoTransform encryptor = provider.CreateEncryptor(provider.Key, provider.IV);
+        
+        MemoryStream mstream = new MemoryStream();
+        CryptoStream cstream = new CryptoStream(mstream, encryptor, CryptoStreamMode.Write);
+        StreamWriter writer = new StreamWriter(cstream);
+        writer.Write(data);
+        string encryptedLeads = Convert.ToBase64String(mstream.ToArray());
+        ```
+        
+        * ***RSA** via System.Security.Cryptography*
+        
+        ```csharp
+        RSACryptoServiceProvider rsa = new RSACryptoServiceProvider(512);
+        RSAParameters parameters = new RSAParameters
+        {
+            Exponent = Convert.FromBase64String(exponent),
+            Modulus = Convert.FromBase64String(modulus)
+        };
+        
+        rsa.ImportParameters(parameters);
+        encryptedKey = Convert.ToBase64String(rsa.Encrypt(key, false));
+        encryptedIV = Convert.ToBase64String(rsa.Encrypt(iv, false));
+        ```
+        
+        **Exemple pour l'implémentation en PHP**
+        
+        * ***Rijndael** via phpseclib/mcrypt_compat*
+        ```php
+        $key = random_bytes(32);
+        $iv = random_bytes(16);
+        $leads = base64_encode(mcrypt_encrypt(MCRYPT_RIJNDAEL_128, $key, $data, MCRYPT_MODE_CBC, $iv));
+        ```
+        * ***RSA** via phpseclib/phpseclib*
+        ```php
+        use phpseclib\Crypt\RSA;
+        use phpseclib\Math\BigInteger;
+        
+        $rsa = new RSA();
+        $rsa->setEncryptionMode(2); # Mode PKCS1
+        $rsa->loadKey([
+          'n' => new BigInteger(base64_decode($modulus), 256),
+          'e' => new BigInteger(base64_decode($exponent), 256)
+        ]);
+        $encrypted = $rsa->encrypt($data);
+        ```
+
+      requestBody:
+        description: "Corps de la requête. Doit contenir le tableau de leads chiffrés suivant l'algorithme AES (Rijndael). Doit également contenir la clé et le vecteur d'initialisation utilisés pour chiffrer le tableau. Ces deux informations doivent également être chiffrées suivant l'algorithme RSA (La clé utilisée doit être la clé publique fournie par EDF ENR)"
+        required: True
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Cipher'
+      responses:
+        "200":
+          description: "Requête reçue et corps déchiffré. Cependant, il est possible que certains leads ne soient pas correctement formés. Le tableau retourné indique pour chaque lead s'il a pu être intégré au CRM ou s'il a rencontré une ou plusieurs erreurs."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeadsResponses'
+        "400":
+          description: 'Mauvaise requête'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              examples:
+                Pas de tableau de lead:
+                  $ref: '#/components/examples/ErrorLeadsArray'
+                Pas de clé AES:
+                  $ref: '#/components/examples/ErrorAESKey'
+                Pas de vecteur d'initialisation AES:
+                  $ref: '#/components/examples/ErrorAESIV'
+                Erreur lors du dechiffrage de la clé AES:
+                  $ref: '#/components/examples/ErrorDecipheringKey'
+                Erreur lors du dechiffrage du vecteur d'initalisation AES:
+                  $ref: '#/components/examples/ErrorDecipheringIV'
+                Erreur lors du dechiffrage du tableau de leads:
+                  $ref: '#/components/examples/ErrorDecipheringLeads'
+                Clé AES invalide:
+                  $ref: '#/components/examples/ErrorInvalidKey'
+                Vecteur d'initialisation AES invalide:
+                  $ref: '#/components/examples/ErrorInvalidIV'
+                Erreur lors de la désérialisation du tableau de leads:
+                  $ref: '#/components/examples/ErrorDeserializeLeads'
+        "401":
+          description: "Authentification refusée"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+              examples:
+                Mauvais token:
+                  $ref: '#/components/examples/ErrorAuthenticationToken'
+        "500":
+          description: "Erreur serveur"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              examples:
+                Erreur paramètres RSA:
+                  $ref: '#/components/examples/ErrorRSAParameters'
+                Erreur serveur inconnue:
+                  $ref: '#/components/examples/ErrorGeneralUnknown'
+                  
+    get:
+      parameters:
+        - $ref: '#/components/parameters/Field'
+      tags:
+        - Base repoussoir
+      operationId: normalizedLeadsDuplicates
+      description: |
+        **Récupération d'une liste de valeurs présentes dans les leads des 30 derniers jours sous forme de hash**
+        * Les valeurs demandées (Adresses email ou numéros de téléphone) sont hashées via l'algorithme **SHA256** (Transformation en tableau d'octets -> algorithme SHA256)
+        * La base est mise à jour toutes les 24H, l'idéal est donc de l'appeler une fois par jour et de conserver la liste des hash retournés jusqu'au lendemain
+        * Si un lead a une adresse mail ou un numéro de téléphone contenu dans la liste renvoyée, il ne faut pas le transmettre à EDF ENR
+        * Les leads sont envoyés hashés pour être inutilisables si interceptés. Il faut donc que le partenaire s'occupe de faire passer les numéros de téléphone et/ou adresse mail par l'algorithme SHA256 afin de comparer avant d'envoyer.
+      responses:
+        "200":
+          description: "Base repoussoir"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Duplicates'
+        "401":
+          description: "Authentification refusée"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorMessage"
+              examples:
+                Mauvais token:
+                  $ref: '#/components/examples/ErrorAuthenticationToken'
+        "500":
+          description: "Erreur serveur"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMessage'
+              examples:
+                Erreur serveur:
+                  $ref: '#/components/examples/ErrorGeneralUnknown'
+components:
+  schemas:
+    helloWorld:
+      type: object
+      properties:
+        message:
+          type: string
+          description: "Hello world message"
+          example: "Hello world"
+    code0:
+      type: object
+      properties:
+        code:
+          type: int
+          description: "Code returned"
+          example: 0
+    Token:
+      type: string
+      example:
+        '"VHHwpXpFtSYPkXXhpwoq5lkO9tcNvzuozLJ7ySNvtAwYrgc1hDb1cHiG5KpUJVsO6q0BOkEPrtTlgiM3nd98Wg=="'
+    ErrorMessage:
+      type: string
+    Duplicates:
+      type: array
+      items:
+        type: string
+      example: ["70302c7ea6745e2477abf772a5ffd65288a485c9fa59b0461b6e3cb47da9775c", "74c25e6bf58a0cf6702435ef6a10bf3d2d816b493a891d6dd1274f2aaeae24d3", "572150a94462d00acecb37230d3825a0ac6e400164af7b405fdff68627f807ef"]
+    Lead:
+      type: object
+      required:
+        - PartnerLeadId
+        - Lastname
+        - Firstname
+        - Mobile
+        - Campaign
+        - Email
+        - PostalCode
+      properties:
+        PartnerLeadId:
+          type: string
+          description: "ID du lead côté partenaire (Unique par lead et par partenaire)."
+        Type:
+          type: integer
+          format: int32
+          description: |
+            Projet B2C ou B2B.
+            * `3` - Particulier
+            * `4` - Professionnel
+        Lastname:
+          type: string
+          description: "Nom du contact principal."
+        Firstname:
+          type: string
+          description: "Prénom du contact principal."
+        PrimaryPhone:
+          type: string
+          description: "Téléphone principal."
+        SecondaryPhone:
+          type: string
+          description: "Téléphone secondaire."
+        PostalCode:
+          type: string
+          description: "Code postal."
+        City:
+          type: string
+          description: "Ville."
+        Address1:
+          type: string
+          description: "Première ligne de l'adresse."
+        Address2:
+          type: string
+          description: "Seconde ligne de l'adresse."
+        Campaign:
+          type: string
+          description: "Guid de la campagne réalisée par le partenaire."
+        CompanyName:
+          type: string
+          description: "Nom de la société si projet professionnel."
+        Civility:
+          type: integer
+          format: int32
+          description: |
+            Civilité du contact principal.
+            * `1` - M.
+            * `2` - Mme
+            * `3` - Mlle
+        Mail:
+          type: string
+          description: "Email du contact principal."
+        HouseOwner:
+          type: integer
+          format: int32
+          description: |
+            Statut de l'habitant, est il propriétaire ?
+            * `1` - Oui - Propriétaire
+            * `2` - Non - Locataire
+            * `3` - Non - Co-propriétaire
+        AffiliationId:
+          type: string
+          description: "Identification d'affiliation (Si applicable)."
+        SurveyId:
+          type: string
+          description: "Identifiant du formulaire d'affiliation."
+        RoofArea:
+          type: integer
+          description: "Surface du toit en m²."
+        MonthlyBilling:
+          type: integer
+          description: "Facture d'électricité mensuelle en €."
+        AvailableRoofArea:
+          type: integer
+          description: "Surface du toit utilisable en m²."
+        Producible:
+          type: integer
+          description: "Energie productible par le lead en kWh/an."
+        EstimatedSavings:
+          type: integer
+          description: "Estimation des économies réalisées en €/an."
+        Garden:
+          type: integer
+          format: int32
+          description: |
+            Présence de jardin.
+            * `100000000` - Sans jardin
+            * `100000001` - Avec jardin
+        Asbestos:
+          type: integer
+          format: int32
+          description: |
+            Présence d'amiante.
+            * `100000000` - Sans amiante
+            * `100000001` - Avec amiante
+        Residency:
+          type: integer
+          format: int32
+          description: |
+            Type de résidence.
+            * `100000000` - Principale
+            * `100000001` - Secondaire
+        Accomodation:
+          type: integer
+          format: int32
+          description: |
+            Type de logement.
+            * `1` - Appartement
+            * `2` - Maison
+        RoofMaterial:
+          type: integer
+          format: int32
+          description: |
+            Matériau du toit.
+            * `1` - Tuile
+            * `2` - Ardoise
+            * `3` - Acier- Tôle - Zinc
+            * `4` - Fibro ciment
+            * `5` - Autre
+            * `6` - Chaume - Bois - Lauze
+            * `7` - Bitume
+        Setup:
+          type: integer
+          format: int32
+          description: |
+            Type d'installation.
+            * `100000000` - Sol
+            * `100000001` - Toiture
+            * `100000002` - Ombrière
+            * `100000003` - Maintenance
+            * `100000004` - Dépannage
+        Sector:
+          type: integer
+          format: int32
+          description: |
+            Secteur d'activité
+            * `100000000` - Agricole
+            * `100000001` - Industrie
+            * `100000002` - Collectivité
+            * `100000003` - Tertiaire
+            * `100000004` - Grand projet sol
+        HouseStatus:
+          type: integer
+          format: int32
+          description: |
+            Etat de construction du bâtiment
+            * `100000000` - Déjà construite
+            * `100000001` - A construire
+        OptInMarketing:
+          type: boolean
+          description: "Opt-in de demande commerciale coché."
+        OptInMail:
+          type: boolean
+          description: "Opt-in de contact par Email coché."
+        OptInPostal:
+          type: boolean
+          description: "Opt-in de contact par courrier postal coché."
+        OptInTextMessage:
+          type: boolean
+          description: "Opt-in de contact par SMS coché."
+        OptInPhone:
+          type: boolean
+          description: "Opt-in de contact par appel téléphonique coché."
+        SponsorProject:
+          type: string
+          description: "Numéro du projet du parrain (PVXXXXXXXX)."
+      example:
+        PartnerLeadId: "2f355849-79ba-4c0a-b5d5-47f544edf25e"
+        Type: 3
+        Lastname: "Dubois"
+        Firstname: "Noham"
+        Mobile: "+33685416723"
+        Campaign: "dc7334b3-af09-4f08-a723-70519473df40"
+        Civility: 1
+        Email: "Noham.Dubois@gmail.com"
+    LeadsResponses:
+      type: array
+      items:
+        type: object
+        properties:
+          PartnerLeadId:
+            type: string
+            description: "ID du lead côté partenaire (Unique par lead et par partenaire)."
+          LeadId:
+            type: string
+            description: "ID du lead côté EDF ENR (Guid, unique par lead). Vide si le lead n'a pas pu être ajouté."
+          Success:
+            type: boolean
+            description: "Indique si un lead a pu être intégré au CRM sans erreur."
+          Errors:
+            type: array
+            description: "Contient la liste des erreurs du lead."
+            items:
+              type: string
+      example:
+        [
+          {
+            PartnerLeadId: "2f355849-79ba-4c0a-b5d5-47f544edf25e",
+            LeadId: "01f3bc95-21f8-470d-b355-4ece3efb38b5",
+            Success: True,
+            Errors: []
+          },
+          {
+            PartnerLeadId: "5cff7362-4733-48f3-8588-9ed29f38eb44",
+            LeadId: "f1c30489-48e2-4b91-aa05-9f5d6177d753",
+            Success: True,
+            Errors: []
+          },
+          {
+            PartnerLeadId: "fc5dca51-b069-4e99-9ec3-255de8d413b4",
+            LeadId: "",
+            Success: False,
+            Errors: []
+          }
+        ]
+    Cipher:
+      type: object
+      properties:
+        IV:
+          type: string
+          description: "Vecteur d'initialisation de l'algorithme AES (Rijndael) utilisé pour encoder le tableau de leads. Doit être à son tour chiffré suivant l'algorithme RSA avant d'être communiqué."
+          example: "DQGbm2WBgwVQzwjvdCB4OSfI6CLYECOcPk9YhlaJa8NMOBILPq6yX7/eCromn4ulEFBRwuf2WBWme0jBjnXkYw=="
+        Key:
+          type: string
+          description: "Clé de l'algorithme AES (Rijndael) utilisé pour encoder le tableau de leads. Doit être à son tour chiffré suivant l'algorithme RSA avant d'être communiqué."
+          example: "CHfnTYoUgSv7xn0fqHqNoqT3TIf4EGldyq858Rw46NlrFxymzpykYGlyhh2WgRinpt7SvzJtSTwShzcwc9x+rQ=="
+        Leads:
+          type: string
+          description: "Tableau d'objets JSON représentant les leads. Doit être chiffré suivant l'algorithme AES (Rijndael) et transmis avec la clé et le vecteur d'initialisation."
+          example: "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"
+          
+  examples:
+    ErrorGeneralUnknown:
+      value: |
+        "Une erreur est survenue avec le WebService. Contactez EDF ENR"
+    ErrorAuthenticationApiKey:
+      value: |
+        "La clé d'API fournie n'est pas valide"
+    ErrorAuthenticationPartnerCode:
+      value: |
+        "Le code partenaire fourni n'est pas valide"
+    ErrorAuthenticationToken:
+      value: |
+        "Le token founi n'est pas valide ou a expiré"
+    ErrorLeadsArray:
+      value: |
+        "Leads are required. It should be an array of JSON objects AES-encrypted and converted into Base64 format."
+    ErrorAESKey:
+      value: |
+        "AES key is required. It should be an RSA-encrypted Rijndael key converted into Base64 format."
+    ErrorAESIV:
+      value: |
+        "AES IV is required. It should be an RSA-encrypted Rijndael initialization vector converted into Base64 format."
+    ErrorRSAParameters:
+      value: |
+        "Error while retrieving RSA parameters on server side."
+    ErrorDecipheringKey:
+      value: |
+        "Unable to decipher AES key. Check if the correct key and algorithm have been used."
+    ErrorDecipheringIV: 
+      value: |
+        "Unable to decipher AES IV. Check if the correct key and algorithm have been used."
+    ErrorInvalidKey:
+      value: |
+        "Invalid AES key. Check if the right value has been encrypted."
+    ErrorInvalidIV:
+      value: |
+        "Invalid AES IV. Check if the right value has been encrypted."
+    ErrorDecipheringLeads:
+      value: |
+        "Unable to decipher leads array. Check if the correct key and algorithm have been used."
+    ErrorDeserializeLeads:
+      value: |
+        "Unable to deserialize leads array. Check if it is a properly built JSON array of objects."
+    ErrorLeadPartnerId1:
+      value: |
+        "Field PartnerLeadId is null or contains the wrong data type"
+    ErrorLeadType0:
+      value: |
+        "Field Type contains an incorrect value or is not properly formatted"
+    ErrorLeadLastname1:
+      value: |
+        "Field Lastname is null or contains the wrong data type"
+    ErrorLeadLastname2:
+      value: |
+        "Field Lastname is larger than its maximal authorized value or length"
+    ErrorLeadFirstname1:
+      value: |
+        "Field Firstname is null or contains the wrong data type"
+    ErrorLeadFirstname2:
+      value: |
+        "Field Firstname is larger than its maximal authorized value or length"
+    ErrorLeadPrimaryPhone0:
+      value: |
+        "Field PrimaryPhone contains an incorrect value or is not properly formatted"
+    ErrorLeadPrimaryPhone1:
+      value: |
+        "Field PrimaryPhone is null or contains the wrong data type"
+    ErrorLeadPrimaryPhone2:
+      value: |
+        "Field PrimaryPhone is larger than its maximal authorized value or length"
+    ErrorLeadSecondaryPhone0:
+      value: |
+        "Field SecondaryPhone contains an incorrect value or is not properly formatted"
+    ErrorLeadPostalCode0:
+      value: |
+        "Field PostalCode contains an incorrect value or is not properly formatted"
+    ErrorLeadCampaign0:
+      value: |
+        "Field Campaign contains an incorrect value or is not properly formatted"
+    ErrorLeadCampaign1:
+      value: |
+        "Field Campaign is null or contains the wrong data type"
+    ErrorLeadCampaign3:
+      value: |
+        "Field Campaign contains an unknown guid"
+    ErrorLeadCivility:
+      value: |
+        "Field Civility contains an incorrect value or is not properly formatted"
+    ErrorLeadMail0:
+      value: |
+        "Field Mail contains an incorrect value or is not properly formatted"
+    ErrorLeadMail1:
+      value: |
+        "Field Mail is null or contains the wrong data type"
+    ErrorLeadHouseOwner:
+      value: |
+        "Field HouseOwner contains an incorrect value or is not properly formatted"
+    ErrorLeadGarden0:
+      value: |
+        "Field Garden contains an incorrect value or is not properly formatted"
+    ErrorLeadAsbestos0:
+      value: |
+        "Field Asbestos contains an incorrect value or is not properly formatted"
+    ErrorLeadResidency0:
+      value: |
+        "Field Residency contains an incorrect value or is not properly formatted"
+    ErrorLeadAccomodation0:
+      value: |
+        "Field Accomodation contains an incorrect value or is not properly formatted"
+    ErrorLeadRoofMaterial0:
+      value: |
+        "Field RoofMaterial contains an incorrect value or is not properly formatted"
+    ErrorLeadSetup0:
+      value: |
+        "Field Setup contains an incorrect value or is not properly formatted"
+    ErrorLeadSector0:
+      value: |
+        "Field Sector contains an incorrect value or is not properly formatted"
+    ErrorLeadHouseStatus0:
+      value: |
+        "Field HouseStatus contains an incorrect value or is not properly formatted"
+    ErrorLeadSponsorProject3:
+      value: |
+        "Field SponsorProject contains an unknown guid"
+         
+  securitySchemes:
+    BearerToken:
+      type: http
+      scheme: bearer
+
+  parameters:
+    From:
+      name: From
+      in: header
+      required: true
+      description: "L'adresse mail permettant d'identifier l'utilisateur de la resource. Header personnalisé."
+      schema:
+        type: string
+      example: "siteweb@edfenr.com"
+      
+    Authorization:
+      name: Authorization
+      in: header
+      required: true
+      description: "Le token d'authentification. A passer en 'bearer'. Header standard."
+      schema:
+        type: string
+      example: "bearer VHHwpXpFtSYPkXXhpwoq5lkO9tcNvzuozLJ7ySNvtAwYrgc1hDb1cHiG5KpUJVsO6q0BOkEPrtTlgiM3nd98Wg=="
+      
+    ApiKey:
+      name: ApiKey
+      in: header
+      required: true
+      description: "Clé d'API (Fournie par EDF ENR) utilisée pour identifier la cible autorisée par le token renvoyé."
+      schema:
+        type: string
+      example: "07123e1f482356c415f684407a3b8723e10b2cbbc0b8fcd6282c49d37c9c1abc"
+    
+    PartnerCode:
+      name: PartnerCode
+      in: header
+      required: true
+      description: "Code partenaire (Fourni par EDF ENR, unique pour chaque entité fournissant des leads)."
+      schema: 
+        type: string
+      example: "dc7334b3-af09-4f08-a723-70519473df40"
+      
+    Field:
+      name: Field
+      in: query
+      required: false
+      description: |
+        Champ à récupérer. Les valeurs possibles sont les suivantes
+        * phone - Pour récupérer les hash des numéros de téléphone
+        * mail - Pour récupérer les hash des adresses email
+        * vide ou autre - Les numéros de téléphone seront retournés par défaut
+          
+      schema:
+        type: string
+      example: "phone"

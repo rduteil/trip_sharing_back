@@ -19,9 +19,9 @@ class ConnectionService {
     return this.data.update(updated);
   }
 
-  findOne(userId, fingerprint) {
-    let fields = { _id: userId, fingerprint: fingerprint };
-    return this.data.findOne(fields);
+  check(mail, fingerprint) {
+    let fields = { mail: mail, fingerprint: fingerprint };
+    return this.data.check(fields);
   }
 
   removeOne(userId, fingerprint) {

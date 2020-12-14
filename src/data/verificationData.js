@@ -1,44 +1,46 @@
 const nedb = require("nedb");
+const path = require("path");
 
 class VerificationData {
-  constructro() {
+  constructor() {
     this.db = new nedb({
-      filename: "../../nedb/verifications.db",
+      filename: path.join(__dirname, "../../nedb/verifications.db"),
       autoload: true
     });
-    this.db.ensureIndex({ fieldName: "userId", unique: true });
+    this.db.ensureIndex({ fieldName: "mail", unique: true });
   }
+
   create(verification) {
-    return new Promise(resolve => {
-      this.db.insert(verification, error => {
+    return new Promise((resolve) => {
+      this.db.insert(verification, (error) => {
         if (error !== null) {
-          resolve(-2);
+          resolve({ code: -2 });
         } else {
-          resolve(0);
+          resolve({ code: 0 });
         }
       });
     });
   }
 
   findOne(fields) {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       this.db.find(fields, {}, (error, verification) => {
         if (error !== null) {
-          resolve(-2);
+          resolve({ code: -2 });
         } else {
-          resolve(verification);
+          resolve({ code: 0, value: verification });
         }
       });
     });
   }
 
   removeOne(fields) {
-    return new Promise(resolve => {
-      this.db.remove(fields, {}, error => {
+    return new Promise((resolve) => {
+      this.db.remove(fields, {}, (error) => {
         if (error !== null) {
-          resolve(-2);
+          resolve({ code: -2 });
         } else {
-          resolve(0);
+          resolve({ code: 0 });
         }
       });
     });

@@ -6,13 +6,13 @@ class MailData {
       service: "Gmail",
       auth: {
         user: "trip.sharing.2k19@gmail.com",
-        pass: "TripSharing2k19"
+        pass: "BackEndPassword"
       }
     });
   }
 
   send(from, to, subject, body) {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       let options = {
         from: from,
         to: to,
@@ -20,8 +20,12 @@ class MailData {
         html: body
       };
 
-      this.transporter.sendMail(options, error => {
-        resolve(error);
+      this.transporter.sendMail(options, (error) => {
+        if (error !== null) {
+          resolve({ code: -7 });
+        } else {
+          resolve({ code: 0 });
+        }
       });
     });
   }

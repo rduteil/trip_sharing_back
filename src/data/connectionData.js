@@ -1,17 +1,18 @@
 const nedb = require("nedb");
+const path = require("path");
 
 class ConnectionData {
   constructor() {
     this.db = new nedb({
-      filename: "../../nedb/connections.db",
+      filename: path.join(__dirname, "../../nedb/connections.db"),
       autoload: true
     });
-    this.db.ensureIndex({ fieldName: "userId", unique: false });
+    this.db.ensureIndex({ fieldName: "mail", unique: false });
   }
 
   create(connection) {
-    return new Promise(resolve => {
-      this.db.insert({ ...connection }, error => {
+    return new Promise((resolve) => {
+      this.db.insert({ ...connection }, (error) => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -22,8 +23,8 @@ class ConnectionData {
   }
 
   update(connection) {
-    return new Promise(resolve => {
-      this.db.update({ _id: connection._id }, connection, error => {
+    return new Promise((resolve) => {
+      this.db.update({ _id: connection._id }, connection, (error) => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -33,21 +34,27 @@ class ConnectionData {
     });
   }
 
-  findOne(fields) {
-    return new Promise(resolve => {
+  check(fields) {
+    return new Promise((resolve) => {
       this.db.find(fields, {}, (error, connection) => {
         if (error !== null) {
-          resolve(-2);
+          resolve(0);
+        } else if (connection == null) {
+          resolve(-1);
         } else {
-          resolve(connection);
+          if (connection.trust) {
+            resolve(0);
+          } else {
+            resolve(-2, connection.token);
+          }
         }
       });
     });
   }
 
   removeOne(fields) {
-    return new Promise(resolve => {
-      this.db.remove(fields, {}, error => {
+    return new Promise((resolve) => {
+      this.db.remove(fields, {}, (error) => {
         if (error !== null) {
           resolve(-2);
         } else {
@@ -58,8 +65,8 @@ class ConnectionData {
   }
 
   removeAll(fields) {
-    return new Promise(resolve => {
-      this.db.remove(fields, { multi: true }, error => {
+    return new Promise((resolve) => {
+      this.db.remove(fields, { multi: true }, (error) => {
         if (error !== null) {
           resolve(-2);
         } else {

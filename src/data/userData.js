@@ -1,80 +1,82 @@
 const nedb = require("nedb");
+const path = require("path");
 
 class UserData {
   constructor() {
     this.db = new nedb({
-      filename: "../../nedb/users.db",
+      filename: path.join(__dirname, "../../nedb/users.db"),
       autoload: true
     });
     this.db.ensureIndex({ fieldName: "mail", unique: true });
   }
+
   create(user) {
-    return new Promise(resolve => {
-      this.db.insert({ ...user }, error => {
+    return new Promise((resolve) => {
+      this.db.insert(user, (error) => {
         if (error !== null) {
-          resolve(-1);
+          resolve({ code: -1 });
         } else {
-          resolve(0);
+          resolve({ code: 0 });
         }
       });
     });
   }
 
   update(user) {
-    return new Promise(resolve => {
-      this.db.update({ _id: user._id }, user, error => {
+    return new Promise((resolve) => {
+      this.db.update({ _id: user._id }, user, (error) => {
         if (error !== null) {
-          resolve(-2);
+          resolve({ code: -2 });
         } else {
-          resolve(0);
+          resolve({ code: 0 });
         }
       });
     });
   }
 
   findOne(field) {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       this.db.findOne(field, (error, user) => {
         if (error !== null) {
-          resolve(-2);
+          resolve({ code: -2 });
         } else {
-          resolve(user);
+          resolve({ code: 0, value: user });
         }
       });
     });
   }
 
   findAll() {
-    return new Promise(resolve => {
+    return new Promise((resolve) => {
       this.db.find({}, (error, users) => {
         if (error !== null) {
-          resolve(-2);
+          resolve({ code: -2 });
         } else {
-          resolve(users);
+          resolve({ code: 0, value: users });
         }
       });
     });
   }
 
   removeOne(field) {
-    return new Promise(resolve => {
-      this.db.remove(field, {}, error => {
+    return new Promise((resolve) => {
+      this.db.remove(field, {}, (error) => {
         if (error !== null) {
-          resolve(-2);
+          resolve({ code: -2 });
         } else {
-          resolve(0);
+          resolve({ code: 0 });
         }
       });
     });
   }
 
   removeAll() {
-    return new Promise(resolve => {
-      this.db.remove({}, { multi: true }, error => {
+    return new Promise((resolve) => {
+      this.db.remove({}, { multi: true }, (error) => {
         if (error !== null) {
-          resolve(-2);
+          resolve({ code: -2 });
         } else {
-          resolve(0);
+          resolve({ code: 0 });
         }
       });
     });

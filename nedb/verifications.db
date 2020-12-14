@@ -1,1 +1,2 @@
+{"userId":{"mail":"tanguy.bolle@gmail.com","token":"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJtYWlsIjoidGFuZ3V5LmJvbGxlQGdtYWlsLmNvbSIsImlhdCI6MTYwMTY0Mzg3NiwiZXhwIjoxNjAxNjg3MDc2LCJpc3MiOiJwcm9kLXBhcGVyLTQ0YzB2In0.F_upBzDASi0Ckdu9vtjrWV_8PSMJxTH8o77A9uiM6dSrWHrAvpYKuSidt4uJ91I6Kl9SUDqlM3CoxHPS5lXH4w","type":0},"_id":"u57xLovDNf1yTVRO"}
 {"$$indexCreated":{"fieldName":"mail","unique":true,"sparse":false}}
