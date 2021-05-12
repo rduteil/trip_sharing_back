@@ -19,7 +19,7 @@
     "mocha": "7.0.1",
     "moment": "2.24.0",
     "nedb": "1.8.0",
-    "nodemailer": "6.4.2",
+    "nodemailer": "6.4.16",
     "path": "0.12.7",
     "supertest": "4.0.2",
     "swagger-ui-express": "4.1.4",
